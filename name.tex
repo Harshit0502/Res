@@ -1,0 +1,213 @@
+```latex
+% Required packages:
+% \usepackage{amsmath,amssymb}
+% \usepackage{float}
+% \usepackage{booktabs}
+% \usepackage{tabularx}
+
+\subsection{Structure-Aware Document Segmentation}
+
+This output text consists mainly of fact, issue, arguments, reasoning and order. Once the cleanup is finished, the judgment can then be fitted into a template format of the formal part of a document. This is important because a judgment is not just a document; the implicit structure often follows a legal flow. First, the facts of the case are introduced, then the legal question or issues are addressed, followed by the arguments, judicial reasoning, and final order. Otherwise, the model may give equal weight to all sentences and fail to capture the actual contribution of each sentence to the judgment.
+
+The processed judgment is represented as \(X'_i\). 
+The framework then classifies \(X'_i\) into five standard legal sections:
+
+\begin{equation}
+S = \{\text{FACTS}, \text{ISSUES}, \text{ARGUMENTS}, \text{REASONING}, \text{FINAL\_ORDER}\}
+\end{equation}
+
+Thus, the section-wise representation of the judgment can be written as:
+
+\begin{equation}
+X_i^{\text{sec}} =
+\{X_i^{\text{facts}}, X_i^{\text{issues}}, X_i^{\text{args}}, X_i^{\text{reason}}, X_i^{\text{order}}\}
+\end{equation}
+
+Here, \(X_i^{\text{facts}}\) represents the factual background of the case, 
+\(X_i^{\text{issues}}\) contains the main legal questions, \(X_i^{\text{args}}\) includes the 
+arguments or submissions made by the parties, \(X_i^{\text{reason}}\) captures the 
+reasoning given by the court, and \(X_i^{\text{order}}\) represents the final decision or order of the judgment.
+
+The purpose of each legal section is summarized in Table~\ref{tab:section_schema}.
+
+\begin{table}[H]
+\centering
+\caption{Canonical legal section schema used in the proposed framework.}
+\label{tab:section_schema}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\linewidth}{@{}p{0.25\linewidth}X@{}}
+\toprule
+\textbf{Section} & \textbf{Role in Judgment} \\
+\midrule
+FACTS & Provides factual background and case history. \\
+ISSUES & Lists the legal questions or disputes before the court. \\
+ARGUMENTS & Contains submissions made by parties or counsels. \\
+REASONING & Explains the court's analysis, interpretation, and logic. \\
+FINAL\_ORDER & States the final decision, relief, dismissal, or directions. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The proposed system first tries to identify explicit section headings using rule-based legal heading patterns. Some headings considered for section identification include Facts of the Case, Issues for Consideration, Submissions, Contentions, Discussion, Analysis, Conclusion, and Final Order. These headings are mapped to the corresponding legal sections. Heading-based assignment is represented as:
+
+\begin{equation}
+H_{\text{head}}(l_j) = s_k
+\end{equation}
+
+where \(l_j\) denotes a line or sentence from the cleaned judgment, and 
+\(s_k \in S\) represents the legal section detected by the heading-based 
+classifier.
+
+Not all judgments have explicit section titles. Some judgments are written as long continuous text, and their section names cannot be directly extracted. In this case, the proposed system uses a position-based fallback strategy. Assume that the document contains \(L\) sentences and \(j\) is the sentence index. The fallback assignment is defined as:
+
+\begin{equation}
+H_{\text{pos}}(j)=
+\begin{cases}
+\text{FACTS}, & 0 \leq j < 0.30L, \\
+\text{REASONING}, & 0.30L \leq j < 0.80L, \\
+\text{FINAL\_ORDER}, & 0.80L \leq j \leq L.
+\end{cases}
+\end{equation}
+
+Therefore, the judgment is interpreted in segments. When headings are not available, the beginning part of the judgment is treated as facts, the middle part as reasoning, and the ending part as the final decision or order.
+
+The segmental representation allows the model to distinguish between different discourse roles in the legal text instead of treating the judgment as only a list of sentences.
+
+The final structured document block is then created by joining the section-wise content with section tags:
+
+\begin{equation}
+\begin{aligned}
+B_{\text{doc}} ={}& [\text{FACTS}]\,X_i^{\text{facts}}
+\oplus [\text{ISSUES}]\,X_i^{\text{issues}} \\
+&\oplus [\text{ARGUMENTS}]\,X_i^{\text{args}}
+\oplus [\text{REASONING}]\,X_i^{\text{reason}} \\
+&\oplus [\text{FINAL\_ORDER}]\,X_i^{\text{order}}
+\end{aligned}
+\end{equation}
+
+where \(B_{\text{doc}}\) denotes the structured document block, and \(\oplus\) denotes the concatenation operation.
+
+In simple terms, this stage follows the rules given below:
+
+\begin{enumerate}
+\item Take the cleaned judgment \(X'_i\) as input.
+\item Search for legal heading patterns related to facts, issues, arguments, reasoning, and final order.
+\item If a heading is found, assign the following text to the detected legal section.
+\item If headings are not found, use sentence position to divide the judgment into facts, reasoning, and final order.
+\item Add section tags such as \([FACTS]\), \([ISSUES]\), \([ARGUMENTS]\), \([REASONING]\), and \([FINAL\_ORDER]\).
+\item Combine all section-wise text to form the final structured document block \(B_{\text{doc}}\).
+\end{enumerate}
+
+It does not output an abridged summary. It outputs the judgment in a structured format so that the LED model can understand the position and role of different types of legal information before summarization.
+
+\subsection{Salience Skeleton Extraction}
+
+In lengthy legal judgments, some information is important while some information is less important. Sentences may describe material facts, issues, arguments, reasoning, and the final order, while other sentences may contain redundant or background information. If the whole judgment is sent to the model without any guidance, the model may focus on less significant details and miss legally relevant content. Therefore, the proposed framework extracts a salience skeleton from the judgment.
+
+The salience skeleton is a smaller, ordered set of important source sentences. It is called a skeleton because it provides the model with a compact outline of the judgment before the full structured document is processed. This paper forms the skeleton by comparing source judgment sentences with gold summary sentences using TF-IDF cosine similarity.
+
+Let the cleaned judgment be split into \(M\) source sentences:
+
+\begin{equation}
+\mathcal{S}_i=\{s_1,s_2,\ldots,s_M\}
+\end{equation}
+
+Similarly, let the gold summary be split into \(R\) summary sentences:
+
+\begin{equation}
+\mathcal{T}_i=\{t_1,t_2,\ldots,t_R\}
+\end{equation}
+
+Each source sentence \(s_m\) and summary sentence \(t_r\) is converted into a TF-IDF vector:
+
+\begin{equation}
+v(s_m)=\operatorname{TFIDF}(s_m)
+\end{equation}
+
+\begin{equation}
+v(t_r)=\operatorname{TFIDF}(t_r)
+\end{equation}
+
+After this, cosine similarity is computed between every summary sentence and every source sentence:
+
+\begin{equation}
+M_{r,m}=
+\frac{v(t_r)\cdot v(s_m)}
+{\lVert v(t_r)\rVert \, \lVert v(s_m)\rVert}
+\end{equation}
+
+where \(M_{r,m}\) denotes the similarity between the \(r^{th}\) summary sentence and the \(m^{th}\) source sentence.
+
+For each summary sentence \(t_r\), the top \(K_s\) most similar source sentences are selected:
+
+\begin{equation}
+I_r=\operatorname{TopK}(M_{r,*},K_s)
+\end{equation}
+
+In the implementation, the value of \(K_s\) is fixed as:
+
+\begin{equation}
+K_s=3
+\end{equation}
+
+This means that, for each summary sentence, the top three matching judgment sentences are considered. To remove weak matches, a minimum similarity threshold is applied:
+
+\begin{equation}
+I'_r=\{m\in I_r \mid M_{r,m}\geq \tau\}
+\end{equation}
+
+where the threshold is:
+
+\begin{equation}
+\tau=0.10
+\end{equation}
+
+The final candidate sentence pool is obtained by combining the selected source sentences for all summary sentences:
+
+\begin{equation}
+I_{\text{cand}}=\bigcup_{r=1}^{R} I'_r
+\end{equation}
+
+Each candidate source sentence is then assigned a salience score based on its maximum similarity with any summary sentence:
+
+\begin{equation}
+\operatorname{Score}(s_m)=\max_{1\leq r\leq R} M_{r,m}
+\end{equation}
+
+The candidate sentences are ranked using this score, and only a limited number of sentences are retained. In the implementation, the maximum skeleton length is fixed as:
+
+\begin{equation}
+\Gamma=60
+\end{equation}
+
+Therefore, the selected sentence set is written as:
+
+\begin{equation}
+\mathcal{S}_i^{*}
+=
+\operatorname{Top}_{\Gamma}
+\left(
+\{s_m \mid m\in I_{\text{cand}}\},
+\operatorname{Score}(s_m)
+\right)
+\end{equation}
+
+Finally, the selected sentences are sorted according to their original position in the judgment:
+
+\begin{equation}
+B_{\text{skel}}=\operatorname{Sort}_{\text{original}}(\mathcal{S}_i^{*})
+\end{equation}
+
+The importance of this step lies in preserving the natural sequence of the judgment. Facts normally precede reasoning, and reasoning normally precedes the order or conclusion. By keeping the original judgment order, relevance and legal flow are maintained.
+
+The skeleton block is represented as:
+
+\begin{equation}
+B_{\text{skel}} =
+\{
+\langle \mathrm{HL} \rangle s_1 \langle /\mathrm{HL} \rangle,
+\ldots,
+\langle \mathrm{HL} \rangle s_q \langle /\mathrm{HL} \rangle
+\}
+\end{equation}
+```
